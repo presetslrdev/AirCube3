@@ -3,12 +3,11 @@
 #include "freertos/semphr.h"
 #include "esp_log.h"
 #include "esp_pm.h"
-#include "nvs_flash.h"
 #include "led_color_lib.h"
 #include <math.h>
 
 #include "led.h"
-#include "ens210.h"
+#include "aht21.h"
 #include "ens16x_driver.h"
 #include "i2c_driver.h"
 #include "serial_protocol.h"
@@ -208,17 +207,17 @@ void sensor_task(void *pvParameters)
     ESP_LOGI(TAG, "Sensor task started");
     
     while (1) {
-        // Read ENS210 temperature and humidity
-        ens210_read_envir();
-        float temp_c = ens210_get_temperature(1); // 1 = Celsius
-        float humidity = ens210_get_humidity();
-        uint8_t ens210_status = ens210_get_status();
-        
-        // Write ENS210 data to ENS161 for environmental compensation
-        uint8_t ens210_t[2];
-        uint8_t ens210_h[2];
-        ens210_get_envir(ens210_t, ens210_h);
-        ens16x_write_ens210_data(ens210_t, ens210_h);
+        // Read AHT21 temperature and humidity
+        aht21_read_data();
+        float temp_c = aht21_get_temperature_c();
+        float humidity = aht21_get_humidity();
+        uint8_t aht21_status = aht21_get_status();
+
+        // Write compensated environmental data to ENS160
+        uint8_t aht21_t[2];
+        uint8_t aht21_h[2];
+        aht21_get_ens16x_compensation(aht21_t, aht21_h);
+        ens16x_write_ens210_data(aht21_t, aht21_h);
         
         // Read ENS16X air quality data
         int etvoc = ens16x_read_etvoc();
@@ -252,13 +251,13 @@ void sensor_task(void *pvParameters)
         
         // Display all sensor data with status
         ESP_LOGI(TAG, "=== Sensor Data ===");
-        ESP_LOGI(TAG, "ENS210 - Status: 0x%02X, Temperature: %.2f°C, Humidity: %.2f%%", 
-                 ens210_status, temp_c, humidity);
+        ESP_LOGI(TAG, "AHT21  - Status: 0x%02X, Temperature: %.2f°C, Humidity: %.2f%%",
+                 aht21_status, temp_c, humidity);
         ESP_LOGI(TAG, "ENS16X - Status: %s, eTVOC: %d ppb, eCO2: %d ppm, AQI: %d", 
                  ens16x_status_str, etvoc, eco2, aqi);
         
         // Send sensor data as JSON over serial
-        serial_send_sensor_data(ens210_status, temp_c, humidity,
+        serial_send_sensor_data(aht21_status, temp_c, humidity,
                                ens16x_status_str, etvoc, eco2, aqi);
         
         // Wait for configurable period before next reading
@@ -271,31 +270,19 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "AirCube");
 
-    // Configure power management with automatic light sleep
-    // Note: ESP32-H2 uses the same structure as ESP32-C2 (both RISC-V based)
-    esp_pm_config_esp32c2_t pm_config = {
-        .max_freq_mhz = 10,           // Maximum CPU frequency (MHz)
-        .min_freq_mhz = 10,            // Minimum CPU frequency (MHz)
-        .light_sleep_enable = false    // Enable automatic light sleep when idle
+    // Configure power management for ESP32-S3
+    esp_pm_config_esp32s3_t pm_config = {
+        .max_freq_mhz = 240,          // Maximum CPU frequency (MHz)
+        .min_freq_mhz = 80,           // Minimum CPU frequency (MHz)
+        .light_sleep_enable = false   // Disable automatic light sleep when idle
     };
-    
+
     esp_err_t ret = esp_pm_configure(&pm_config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to configure power management: %s", esp_err_to_name(ret));
     } else {
-        ESP_LOGI(TAG, "Power management configured with automatic light sleep enabled");
+        ESP_LOGI(TAG, "Power management configured for ESP32-S3");
     }
-
-    // Initialize NVS (Non-Volatile Storage) for saving settings
-    ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        // NVS partition was truncated and needs to be erased
-        // Retry nvs_flash_init
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(ret);
-    ESP_LOGI(TAG, "NVS initialized");
 
     // Initialize I2C driver (must be done before initializing sensors)
     if (i2c_driver_init() != ESP_OK) {
@@ -328,9 +315,9 @@ void app_main(void)
     // Initialize button for brightness control
     button_init();
     
-    // Initialize ENS210 temperature and humidity sensor
-    ens210_init();
-    ESP_LOGI(TAG, "ENS210 initialized");
+    // Initialize AHT21 temperature and humidity sensor
+    aht21_init();
+    ESP_LOGI(TAG, "AHT21 initialized");
     
     // Initialize ENS16X air quality sensor
     ens16x_init();

@@ -8,8 +8,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define I2C_MASTER_SCL_IO           11      /*!< GPIO number used for I2C master clock */
-#define I2C_MASTER_SDA_IO           10      /*!< GPIO number used for I2C master data  */
+#define I2C_MASTER_SCL_IO           11     /*!< GPIO number used for I2C master clock */
+#define I2C_MASTER_SDA_IO           10     /*!< GPIO number used for I2C master data  */
 #define I2C_MASTER_NUM              0      /*!< I2C master i2c port number */
 #define I2C_MASTER_FREQ_HZ          100000 /*!< I2C master clock frequency */
 #define I2C_MASTER_TIMEOUT_MS       1000
@@ -115,6 +115,11 @@ esp_err_t i2c_driver_read(uint8_t device_addr, const uint8_t *reg_addr, size_t r
     i2c_master_dev_handle_t dev_handle = get_device_handle(device_addr);
     if (dev_handle == NULL) {
         return ESP_FAIL;
+    }
+
+    if (reg_len == 0 || reg_addr == NULL) {
+        // Some devices (e.g., AHT21) expect a pure read without register address
+        return i2c_master_receive(dev_handle, data, data_len, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
     }
 
     // Transmit register address and receive data

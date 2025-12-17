@@ -13,7 +13,7 @@
 void serial_protocol_init(void);
 
 // Send sensor data as JSON
-void serial_send_sensor_data(uint8_t ens210_status, float temperature_c, float humidity,
+void serial_send_sensor_data(uint8_t aht21_status, float temperature_c, float humidity,
                              const char* ens16x_status_str, int etvoc, int eco2, int aqi);
 
 // Process incoming commands (call periodically)
